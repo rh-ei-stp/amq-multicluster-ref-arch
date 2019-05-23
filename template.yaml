@@ -1,0 +1,914 @@
+apiVersion: v1
+kind: Template
+labels:
+  template: interconnect-amq-broker-72-persistence-clustered-ssl
+  xpaas: 1.4.16
+message: A new messaging service with SSL support has been created in your project. It will handle the protocol(s) "${AMQ_PROTOCOL}". The username/password for accessing the service is ${AMQ_USER}/${AMQ_PASSWORD}. Please be sure to create a secret named "${AMQ_SECRET}" containing the trust store and key store files ("${AMQ_TRUSTSTORE}" and "${AMQ_KEYSTORE}") used for serving secure content.
+metadata:
+  annotations:
+    description: Application template for Red Hat AMQ brokers. This template supports SSL and requires usage of OpenShift secrets.
+    iconClass: icon-amq
+    openshift.io/display-name: Red Hat AMQ Broker 7.2 (Persistence, clustered, with SSL)
+    openshift.io/provider-display-name: Red Hat, Inc.
+    tags: messaging,amq,xpaas
+    template.openshift.io/documentation-url: 'https://access.redhat.com/documentation/en/red-hat-amq/'
+    template.openshift.io/long-description: >-
+      This template defines resources needed to develop a Red Hat AMQ Broker 7.2 based application, including a statefulset configuration, using persistent storage and secure communication using SSL.
+    template.openshift.io/support-url: 'https://access.redhat.com'    
+    version: 1.4.16
+  name: interconnect-amq-broker-72-persistence-clustered-ssl
+objects:
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: 5318211-rspazzol-pull-secret
+  data:
+    .dockerconfigjson: ${PULL_SECRET}
+  type: kubernetes.io/dockerconfigjson        
+  
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Certificate
+  metadata:
+    name: ${AMQ_APPLICATION_NAME}-certs
+  spec:
+    secretName: ${AMQ_APPLICATION_NAME}-certs
+    issuerRef:
+      name: ${CERT_ISSUER}
+    dnsNames:
+    - ${AMQ_NAME}-amq-headless.${NAMESPACE}.svc
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: ${AMQ_APPLICATION_NAME}-service-account
+    labels:
+      app: ${AMQ_APPLICATION_NAME}
+- apiVersion: rbac.authorization.k8s.io/v1beta1
+  kind: Role
+  metadata:
+    name: ${AMQ_APPLICATION_NAME}-role
+    labels:
+      app: ${AMQ_APPLICATION_NAME}
+  rules:
+  - apiGroups:
+    - ""
+    resources:
+    - endpoints
+    verbs:
+    - create
+    - delete
+    - deletecollection
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - namespaces
+    verbs:
+    - get
+    - list
+- apiVersion: rbac.authorization.k8s.io/v1beta1
+  kind: RoleBinding
+  metadata:
+    name: ${AMQ_APPLICATION_NAME}-role-binding
+    labels:
+      app: ${AMQ_APPLICATION_NAME}
+  subjects:
+    - kind: ServiceAccount
+      name: ${AMQ_APPLICATION_NAME}-service-account
+  roleRef:
+    kind: Role
+    name: ${AMQ_APPLICATION_NAME}-role
+    apiGroup: rbac.authorization.k8s.io
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      description: The broker's headless, non load balanced service
+    labels:
+      application: ${AMQ_APPLICATION_NAME}
+      app: ${AMQ_APPLICATION_NAME}
+    name: ${AMQ_NAME}-amq-headless
+  spec:
+    clusterIP: None
+    publishNotReadyAddresses: true
+    ports:
+    - port: 61616
+      name: all
+      protocol: TCP
+      targetPort: 61616
+    - port: 8161
+      name: console-jolokia
+      protocol: TCP
+      targetPort: 8161
+    - port: 5672
+      name: amqp
+      protocol: TCP
+      targetPort: 5672
+    - port: 1883
+      name: mqtt
+      protocol: TCP
+      targetPort: 1883
+    - port: 61613
+      name: stomp
+      protocol: TCP
+      targetPort: 61613
+    - port: 61617
+      name: all-ssl
+      protocol: TCP
+      targetPort: 61617
+    - port: 5671
+      name: amqp-ssl
+      protocol: TCP
+      targetPort: 5671
+    - port: 8883
+      name: mqtt-ssl
+      protocol: TCP
+      targetPort: 8883
+    - port: 61612
+      name: stomp-ssl
+      protocol: TCP
+      targetPort: 61612
+    selector:
+      deploymentConfig: ${AMQ_APPLICATION_NAME}-amq
+    type: ClusterIP
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      description: The JGroups ping port for clustering.
+      service.alpha.kubernetes.io/tolerate-unready-endpoints: 'true'
+    labels:
+      application: ${AMQ_APPLICATION_NAME}
+    name: ping
+  spec:
+    clusterIP: None  
+    ports:
+      - targetPort: 8888
+        port: 8888
+    selector:
+      deploymentConfig: ${AMQ_APPLICATION_NAME}-amq      
+- apiVersion: apps/v1beta1
+  kind: StatefulSet
+  metadata:
+    labels:
+      application: ${AMQ_APPLICATION_NAME}
+    name: ${AMQ_APPLICATION_NAME}-amq
+    annotations:
+      alpha.image.policy.openshift.io/resolve-names: '*'
+      statefulsets.kubernetes.io/drainer-pod-template: |
+        {
+          "metadata": {
+            "labels": {
+              "app": "${AMQ_APPLICATION_NAME}-amq-drainer"
+            }
+          },
+          "spec": {
+            "serviceAccount": "${AMQ_APPLICATION_NAME}-service-account",
+            "serviceAccountName": "${AMQ_APPLICATION_NAME}-service-account",
+            "terminationGracePeriodSeconds": 5,
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "AMQ_EXTRA_ARGS",
+                    "value": "--no-autotune"
+                  },
+                  {
+                    "name": "AMQ_USER",
+                    "value": "${AMQ_USER}"
+                  },
+                  {
+                    "name": "AMQ_PASSWORD",
+                    "value": "${AMQ_PASSWORD}"
+                  },
+                  {
+                    "name": "AMQ_ROLE",
+                    "value": "${AMQ_ROLE}"
+                  },
+                  {
+                    "name": "AMQ_NAME",
+                    "value": "${AMQ_NAME}"
+                  },
+                  {
+                    "name": "AMQ_TRANSPORTS",
+                    "value": "${AMQ_PROTOCOL}"
+                  },
+                  {
+                    "name": "AMQ_QUEUES",
+                    "value": "${AMQ_QUEUES}"
+                  },
+                  {
+                    "name": "AMQ_ADDRESSES",
+                    "value": "${AMQ_ADDRESSES}"
+                  },
+                  {
+                    "name": "AMQ_GLOBAL_MAX_SIZE",
+                    "value": "${AMQ_GLOBAL_MAX_SIZE}"
+                  },
+                  {
+                    "name": "AMQ_ALLOW_ANONYMOUS",
+                    "value": "${AMQ_ALLOW_ANONYMOUS}"
+                  },
+                  {
+                    "name": "AMQ_DATA_DIR",
+                    "value": "${AMQ_DATA_DIR}"
+                  },
+                  {
+                    "name": "AMQ_DATA_DIR_LOGGING",
+                    "value": "true"
+                  },
+                  {
+                    "name": "AMQ_CLUSTERED",
+                    "value": "${AMQ_CLUSTERED}"
+                  },
+                  {
+                    "name": "AMQ_REPLICAS",
+                    "value": "${AMQ_REPLICAS}"
+                  },
+                  {
+                    "name": "AMQ_CLUSTER_USER",
+                    "value": "${AMQ_CLUSTER_USER}"
+                  },
+                  {
+                    "name": "AMQ_CLUSTER_PASSWORD",
+                    "value": "${AMQ_CLUSTER_PASSWORD}"
+                  },
+                  {
+                    "name": "POD_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "OPENSHIFT_DNS_PING_SERVICE_PORT",
+                    "value": "8888"
+                  }
+                ],
+                "image": "${AMQ_IMAGE}",
+                "name": "${AMQ_APPLICATION_NAME}-amq",
+
+                "command": ["/bin/sh", "-c", "echo \"Starting the drainer\" ; /opt/amq/bin/drain.sh; echo \"Drain completed! Exit code $?\""],
+                "volumeMounts": [
+                  {
+                    "name": "${AMQ_APPLICATION_NAME}-amq-pvol",
+                    "mountPath": "${AMQ_DATA_DIR}"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+  spec:
+    podManagementPolicy: OrderedReady
+    replicas: ${{AMQ_REPLICAS}}
+    selector:
+      matchLabels:
+        app: ${AMQ_APPLICATION_NAME}-amq
+    strategy:
+      rollingParams:
+        maxSurge: 0
+      type: Rolling
+    serviceName: ${AMQ_NAME}-amq-headless
+    template:
+      metadata:
+        labels:
+          application: ${AMQ_APPLICATION_NAME}
+          deploymentConfig: ${AMQ_APPLICATION_NAME}-amq
+          app: ${AMQ_APPLICATION_NAME}-amq
+        name: ${AMQ_APPLICATION_NAME}-amq
+      spec:
+        initContainers:
+        - name: pem-to-keystore
+          image: registry.access.redhat.com/redhat-sso-7/sso71-openshift:1.1-16
+          env:
+            - name: keyfile
+              value: /var/run/secrets/openshift.io/broker-certs/tls.key
+            - name: crtfile
+              value: /var/run/secrets/openshift.io/broker-certs/tls.crt
+            - name: keystore_pkcs12
+              value: /var/run/secrets/java.io/keystores/keystore.pkcs12
+            - name: keystore_jks
+              value: /var/run/secrets/java.io/keystores/keystore.jks
+            - name: password
+              value: changeit    
+          command: ['/bin/bash']
+          args: ['-c', "openssl pkcs12 -export -inkey $keyfile -in $crtfile -out $keystore_pkcs12 -password pass:$password && keytool -importkeystore -noprompt -srckeystore $keystore_pkcs12 -srcstoretype pkcs12 -destkeystore $keystore_jks -storepass $password -srcstorepass $password"]
+          volumeMounts:
+            - name: keystore-volume
+              mountPath: /var/run/secrets/java.io/keystores
+            - name: broker-certs
+              mountPath: /var/run/secrets/openshift.io/broker-certs
+        - name: pem-to-truststore
+          image: registry.access.redhat.com/redhat-sso-7/sso71-openshift:1.1-16
+          env:
+            - name: ca_bundle
+              value: /var/run/secrets/openshift.io/broker-certs/ca.crt
+            - name: truststore_jks
+              value: /var/run/secrets/java.io/keystores/truststore.jks
+            - name: password
+              value: changeit    
+          command: ['/bin/bash']
+          args: ['-c', "csplit -z -f crt- $ca_bundle '/-----BEGIN CERTIFICATE-----/' '{*}' && for file in crt-*; do keytool -import -noprompt -keystore $truststore_jks -file $file -storepass changeit -alias service-$file; done"]
+          volumeMounts:
+            - name: keystore-volume
+              mountPath: /var/run/secrets/java.io/keystores
+            - name: broker-certs
+              mountPath: /var/run/secrets/openshift.io/broker-certs                                     
+        containers:
+        - env:
+          - name: AMQ_USER
+            value: ${AMQ_USER}
+          - name: AMQ_PASSWORD
+            value: ${AMQ_PASSWORD}
+          - name: AMQ_ROLE
+            value: ${AMQ_ROLE}
+          - name: AMQ_NAME
+            value: ${AMQ_NAME}
+          - name: AMQ_TRANSPORTS
+            value: ${AMQ_PROTOCOL}
+          - name: AMQ_QUEUES
+            value: ${AMQ_QUEUES}
+          - name: AMQ_ADDRESSES
+            value: ${AMQ_ADDRESSES}
+          - name: AMQ_KEYSTORE_TRUSTSTORE_DIR
+            value: /var/run/secrets/java.io/keystores
+          - name: AMQ_TRUSTSTORE
+            value: truststore.jks
+          - name: AMQ_TRUSTSTORE_PASSWORD
+            value: changeit
+          - name: AMQ_KEYSTORE
+            value: keystore.jks
+          - name: AMQ_KEYSTORE_PASSWORD
+            value: changeit
+          - name: AMQ_GLOBAL_MAX_SIZE
+            value: ${AMQ_GLOBAL_MAX_SIZE}
+          - name: AMQ_REQUIRE_LOGIN
+            value: ${AMQ_REQUIRE_LOGIN}
+          - name: AMQ_DATA_DIR
+            value: ${AMQ_DATA_DIR}
+          - name: AMQ_DATA_DIR_LOGGING
+            value: ${AMQ_DATA_DIR_LOGGING}
+          - name: AMQ_CLUSTERED
+            value: ${AMQ_CLUSTERED}
+          - name: AMQ_REPLICAS
+            value: ${AMQ_REPLICAS}
+          - name: AMQ_CLUSTER_USER
+            value: ${AMQ_CLUSTER_USER}
+          - name: AMQ_CLUSTER_PASSWORD
+            value: ${AMQ_CLUSTER_PASSWORD}
+          - name: AMQ_EXTRA_ARGS
+            value: ${AMQ_EXTRA_ARGS}
+          - name: AMQ_ANYCAST_PREFIX
+            value: ${AMQ_ANYCAST_PREFIX}
+          - name: AMQ_MULTICAST_PREFIX
+            value: ${AMQ_MULTICAST_PREFIX}
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          readinessProbe:
+            exec:
+              command:
+              - "/bin/bash"
+              - "-c"
+              - "/opt/amq/bin/readinessProbe.sh"
+          image: ${AMQ_IMAGE}              
+          name: ${AMQ_APPLICATION_NAME}-amq
+          ports:
+          - containerPort: 8161
+            name: console-jolokia
+            protocol: TCP
+          - containerPort: 5672
+            name: amqp
+            protocol: TCP
+          - containerPort: 5671
+            name: amqp-ssl
+            protocol: TCP
+          - containerPort: 1883
+            name: mqtt
+            protocol: TCP
+          - containerPort: 8883
+            name: mqtt-ssl
+            protocol: TCP
+          - containerPort: 61613
+            name: stomp
+            protocol: TCP
+          - containerPort: 61612
+            name: stomp-ssl
+            protocol: TCP
+          - containerPort: 61616
+            name: all
+            protocol: TCP
+          - containerPort: 61617
+            name: all-ssl
+            protocol: TCP
+          volumeMounts:
+          - name: ${AMQ_APPLICATION_NAME}-amq-pvol
+            mountPath: ${AMQ_DATA_DIR}
+          - mountPath: /var/run/secrets/java.io/keystores
+            name: keystore-volume
+            readOnly: true            
+        terminationGracePeriodSeconds: 60
+        volumes:
+          - name: keystore-volume
+            emptyDir: {}           
+          - name: broker-certs
+            secret:
+              secretName: ${AMQ_APPLICATION_NAME}-certs                          
+    volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: ${AMQ_APPLICATION_NAME}-amq-pvol
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: ${AMQ_VOLUME_CAPACITY}
+    triggers:
+    - type: ConfigChange
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Issuer
+  metadata:
+    name: self-signer
+  spec:
+    selfSigned: {}
+# Generate a RootCA Certificate used to sign certificates for the webhook
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Certificate
+  metadata:
+    name: rootca
+  spec:
+    secretName: rootca
+    issuerRef:
+      name: self-signer
+    commonName: "ca.self-signer.cert-manager"
+    isCA: true
+# Create an Issuer that uses the above generated CA certificate to issue certs
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Issuer
+  metadata:
+    name: ${CERT_ISSUER}
+  spec:
+    ca:
+      secretName: rootca
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Certificate
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}-certs
+  spec:
+    secretName: ${INTERCONNECT_APPLICATION_NAME}-certs
+    issuerRef:
+      name: ${CERT_ISSUER}
+    dnsNames:
+    - ${INTERCONNECT_APPLICATION_NAME}.${NAMESPACE}.svc
+    - ${INTERCONNECT_APPLICATION_NAME}-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
+    - ${INTERCONNECT_APPLICATION_NAME}-console-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}          
+- kind: Service
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+    annotations:
+      description: The router's AMQP port.
+      #service.alpha.openshift.io/serving-cert-secret-name: ${INTERCONNECT_APPLICATION_NAME}-cert
+  spec:
+    ports:
+    - port: 5672
+      name: amqp
+      targetPort: 5672
+    - port: 5671
+      name: amqps
+      targetPort: 5671
+    - port: 8672
+      name: http
+      targetPort: 8672
+    - port: 55672
+      name: inter-router
+      targetPort: 55672
+    selector:
+      deploymentConfig: ${INTERCONNECT_APPLICATION_NAME}
+- kind: DeploymentConfig
+  apiVersion: v1
+  metadata:
+    name: "${INTERCONNECT_APPLICATION_NAME}"
+    labels:
+      application: "${INTERCONNECT_APPLICATION_NAME}"
+  spec:
+    strategy:
+      type: Rolling
+      rollingParams:
+        maxSurge: 0
+    triggers:
+    - type: ConfigChange
+    replicas: 2
+    selector:
+      deploymentConfig: "${INTERCONNECT_APPLICATION_NAME}"
+    template:
+      metadata:
+        name: "${INTERCONNECT_APPLICATION_NAME}"
+        labels:
+          deploymentConfig: "${INTERCONNECT_APPLICATION_NAME}"
+          application: "${INTERCONNECT_APPLICATION_NAME}"
+      spec:
+        imagePullSecrets:
+        - name: 5318211-rspazzol-pull-secret
+        serviceAccountName: ${INTERCONNECT_APPLICATION_NAME}
+        terminationGracePeriodSeconds: 60
+        containers:
+        - name: "${INTERCONNECT_APPLICATION_NAME}"
+          ports:
+          - name: amqp
+            containerPort: 5672
+            protocol: TCP
+          - name: amqps
+            containerPort: 5671
+            protocol: TCP
+          - name: http
+            containerPort: 8672
+            protocol: TCP
+          - name: inter
+            containerPort: 55672
+            protocol: TCP
+          env:
+          - name: APPLICATION_NAME
+            value: "${INTERCONNECT_APPLICATION_NAME}"
+          - name: QDROUTERD_CONF
+            value: "/etc/qpid-dispatch/qdrouterd.conf"
+          - name: QDROUTERD_AUTO_MESH_DISCOVERY
+            value: "QUERY"
+          - name: QDROUTERD_AUTO_CREATE_SASLDB_SOURCE
+            value: "/etc/qpid-dispatch-users"
+          - name: QDROUTERD_AUTO_CREATE_SASLDB_PATH
+            value: "/opt/interconnect/etc/qdrouterd.sasldb"
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          image: registry.redhat.io/amq7/amq-interconnect:1.4
+          volumeMounts:
+          - name: certs
+            readOnly: true
+            mountPath: /etc/qpid-dispatch-certs/normal/
+          - name: inter-router-certs
+            readOnly: true
+            mountPath: /etc/qpid-dispatch-certs/inter-router/
+          - name: client-ca
+            readOnly: true
+            mountPath: /etc/qpid-dispatch-certs/client-ca/
+          - name: config-volume
+            mountPath: /etc/qpid-dispatch/
+          - name: sasl-config
+            mountPath: /etc/sasl2/
+          - name: users
+            mountPath: /etc/qpid-dispatch-users
+          terminationGracePeriodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8672
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8672
+        volumes:
+        - name: certs
+          secret:
+            secretName: ${INTERCONNECT_APPLICATION_NAME}-certs
+        - name: inter-router-certs
+          secret:
+            secretName: ${INTERCONNECT_APPLICATION_NAME}-certs
+        - name: client-ca
+          secret:
+            secretName: ${INTERCONNECT_APPLICATION_NAME}-certs
+        - name: sasl-config
+          configMap:
+            name: ${INTERCONNECT_APPLICATION_NAME}-sasl-config
+        - name: users
+          secret:
+            secretName: ${INTERCONNECT_APPLICATION_NAME}-users
+        - name: config-volume
+          configMap:
+            name: ${INTERCONNECT_APPLICATION_NAME}
+        imagePullPolicy: Always
+- kind: ServiceAccount
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}
+    labels:
+      application: "${INTERCONNECT_APPLICATION_NAME}"
+- kind: RoleBinding
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}-view
+    labels:
+      application: "${INTERCONNECT_APPLICATION_NAME}"
+  subjects:
+  - kind: ServiceAccount
+    name: ${INTERCONNECT_APPLICATION_NAME}
+  roleRef:
+    name: "view"
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+  data:
+    qdrouterd.conf: |-
+      router {
+          mode: interior
+          id: Router.${HOSTNAME}
+      }
+
+      # only allow anonymous connections over localhost
+      listener {
+          host: localhost
+          port: amqp
+          authenticatePeer: no
+          saslMechanisms: ANONYMOUS
+      }
+
+      listener {
+          host: 0.0.0.0
+          port: amqps
+          sslProfile: service_tls
+          authenticatePeer: yes
+          requireSsl: true
+          saslMechanisms: EXTERNAL
+      }
+
+      listener {
+          host: 0.0.0.0
+          port: 55672
+          role: inter-router
+          sslProfile: inter_router_tls
+          authenticatePeer: yes
+          requireSsl: true
+          saslMechanisms: EXTERNAL
+      }
+
+      sslProfile {
+          name: inter_router_tls
+          certFile: /etc/qpid-dispatch-certs/inter-router/tls.crt
+          privateKeyFile: /etc/qpid-dispatch-certs/inter-router/tls.key
+          caCertFile: /etc/qpid-dispatch-certs/inter-router/ca.crt
+      }
+
+      sslProfile {
+          name: service_tls
+          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
+          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
+          caCertFile: /etc/qpid-dispatch-certs/client-ca/ca.crt
+      }
+
+      sslProfile {
+          name: console_tls
+          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
+          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
+      }
+
+      listener {
+          host: 0.0.0.0
+          port: 8672
+          authenticatePeer: no
+          saslMechanisms: PLAIN SCRAM-SHA-1
+          sslProfile: console_tls
+          http: true
+          httpRootDir: /usr/share/qpid-dispatch/console
+      }
+
+      address {
+          prefix: closest
+          distribution: closest
+      }
+
+      address {
+          prefix: multicast
+          distribution: multicast
+      }
+
+      address {
+          prefix: unicast
+          distribution: closest
+      }
+
+      address {
+          prefix: exclusive
+          distribution: closest
+      }
+
+      address {
+          prefix: broadcast
+          distribution: multicast
+      }
+
+      connector {
+          name: broker-mark-amq-amqp
+          role: route-container
+          host: ${AMQ_NAME}-amq-headless.${NAMESPACE}.svc
+          port: amqps
+          sslProfile: service_tls
+          saslMechanisms: ANONYMOUS
+      }  
+- kind: Secret
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}-users
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+  stringData:
+    ${IC_USERNAME}: ${IC_PASSWORD}
+- kind: Route
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+  spec:
+    port:
+      targetPort: amqps
+    tls:
+      termination: passthrough
+    to:
+      kind: Service
+      name: ${INTERCONNECT_APPLICATION_NAME}
+- kind: Route
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}-console
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+  spec:
+    port:
+      targetPort: http
+    tls:
+      termination: passthrough
+    to:
+      kind: Service
+      name: ${INTERCONNECT_APPLICATION_NAME}
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}-sasl-config
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+  data:
+    qdrouterd.conf: |-
+      pwcheck_method: auxprop
+      auxprop_plugin: sasldb
+      sasldb_path: /opt/interconnect/etc/qdrouterd.sasldb
+      mech_list: SCRAM-SHA-1 DIGEST-MD5 PLAIN EXTERNAL      
+# parameters
+parameters:
+- description: The name for the application.
+  displayName: Application Name
+  name: AMQ_APPLICATION_NAME
+  required: true
+  value: broker
+- description: 'Protocols to configure, separated by commas. Allowed values are: `openwire`, `amqp`, `stomp`, `mqtt` and `hornetq`.'
+  displayName: AMQ Protocols
+  name: AMQ_PROTOCOL
+  value: openwire,amqp,stomp,mqtt,hornetq
+- description: Queue names, separated by commas. These queues will be automatically created when the broker starts. If left empty, queues will be still created dynamically.
+  displayName: Queues
+  name: AMQ_QUEUES
+  value: demoQueue
+- description: Address names, separated by commas. These addresses will be automatically created when the broker starts. If left empty, addresses will be still created dynamically.
+  displayName: Addresses
+  name: AMQ_ADDRESSES
+- description: Size of the volume used by AMQ for persisting messages.
+  displayName: AMQ Volume Size
+  name: AMQ_VOLUME_CAPACITY
+  value: 1Gi
+  required: true
+- description: User name for standard broker user. It is required for connecting to the broker. If left empty, it will be generated.
+  displayName: AMQ Username
+  from: user[a-zA-Z0-9]{3}
+  generate: expression
+  name: AMQ_USER
+- description: Password for standard broker user. It is required for connecting to the broker. If left empty, it will be generated.
+  displayName: AMQ Password
+  from: '[a-zA-Z0-9]{8}'
+  generate: expression
+  name: AMQ_PASSWORD
+- description: User role for standard broker user.
+  displayName: AMQ Role
+  name: AMQ_ROLE
+  value: admin
+- description: The name of the broker
+  displayName: AMQ Name
+  name: AMQ_NAME
+  value: broker
+- description: Clustered
+  displayName: clustered
+  name: AMQ_CLUSTERED
+  value: 'true'
+- description: Number of broker replicas for a cluster
+  displayName: Number of Replicas
+  name: AMQ_REPLICAS
+  value: '2'
+- description: Clustered user
+  displayName: cluster user
+  from: user[a-zA-Z0-9]{3}
+  generate: expression  
+  name: AMQ_CLUSTER_USER
+- description: Clustered password
+  displayName: cluster password
+  from: '[a-zA-Z0-9]{8}'
+  generate: expression  
+  name: AMQ_CLUSTER_PASSWORD
+- description: "Maximum amount of memory which message data may consume (Default: Undefined, half of the system's memory)."
+  displayName: AMQ Global Max Size
+  name: AMQ_GLOBAL_MAX_SIZE
+  value: 100 gb
+- description: "Determines whether or not the broker will allow anonymous access, or require login"
+  displayName: AMQ Require Login
+  name: AMQ_REQUIRE_LOGIN
+- description: Name of a secret containing SSL related files
+  displayName: Secret Name
+  name: AMQ_SECRET
+  required: true
+  value: amq-app-secret
+- description: SSL trust store filename
+  displayName: Trust Store Filename
+  name: AMQ_TRUSTSTORE
+  required: true
+  value: broker.ts
+- description: SSL key store filename
+  displayName: AMQ Keystore Filename
+  name: AMQ_KEYSTORE
+  required: true
+  value: broker.ks
+- description: The directory to use for data storage
+  displayName: AMQ Data Directory
+  name: AMQ_DATA_DIR
+  value: /opt/amq/data
+- description: Use the AMQ Data Directory for logging
+  displayName: AMQ Data Directory for logging
+  name: AMQ_DATA_DIR_LOGGING
+  value: 'true'
+- description: Extra arguments for broker creation
+  name: AMQ_EXTRA_ARGS
+  required: false
+- description: Anycast prefix applied to the multiplexed protocol ports 61616 and 61617
+  displayName: AMQ Anycast Prefix
+  name: AMQ_ANYCAST_PREFIX
+  required: false
+- description: Multicast prefix applied to the multiplexed protocol ports 61616 and 61617
+  displayName: AMQ Multicast Prefix
+  name: AMQ_MULTICAST_PREFIX
+  required: false
+- description: Broker Image
+  displayName: Image
+  name: AMQ_IMAGE
+  required: true
+  value: registry.redhat.io/amq-broker-7/amq-broker-73-openshift:7.3
+- description: Cert Issuer
+  displayName: Cert Issuer
+  name: CERT_ISSUER
+  required: true
+  value: internalpki
+- description: Namespace
+  displayName: Namespace in which the app is being deployed
+  name: NAMESPACE
+  required: true
+- displayName: Application Name
+  description: The name of the application.
+  name: INTERCONNECT_APPLICATION_NAME
+  value: amq-interconnect
+  required: true
+- displayName: Default Route Domain
+  description: Default Route Domain
+  name: DEFAULT_ROUTE_DOMAIN
+  required: true  
+- displayName: Router Internal Certificates
+  description: The name of the secret that contains the certificate with which to authenticate inter-router connections.
+  name: INTER_ROUTER_CERTS_SECRET
+  value: inter-router-certs
+- displayName: Client CA Certificates
+  description: The name of the secret that contains the CA certificate with which valid client certificates were signed.
+  name: IC_CLIENT_CA_SECRET
+  value: client-ca
+- description: Create a user name for accessing the router's web console.
+  name: IC_USERNAME
+  value: admin
+- description: Create a password for accessing the router's web console.
+  from: '[A-Z0-9]{8}'
+  generate: expression
+  name: IC_PASSWORD
+- description: pull secret from registry.redhat.com.
+  name: PULL_SECRET
+  required: true  
+
