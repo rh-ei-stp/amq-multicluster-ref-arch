@@ -28,9 +28,9 @@ In order to deploy execute the following steps
     oc process -f ./template.yaml -p NAMESPACE=datacenter-a -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET | oc apply -f - -n datacenter-a
     ```
 
-4. Deploy AMQ and Interconnect in the first datacenter (emulated as a namespace):
+4. Deploy AMQ and Interconnect in the second datacenter (emulated as a namespace):
 
     ```shell
     oc new-project datacenter-b
-    oc process -f ./template.yaml -p NAMESPACE=datacenter-a -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET | oc apply -f - -n datacenter-b
+    oc process -f ./template.yaml -p NAMESPACE=datacenter-b -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET | oc apply -f - -n datacenter-b
     ```
