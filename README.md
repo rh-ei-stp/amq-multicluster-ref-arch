@@ -1,5 +1,9 @@
 # AMQ Multicluster Reference deployment
 
+The architecture deployed by this template is shown in this diagram:
+
+![amq-dr-reference-architecture](./media/amq-dr-arch.jpg)
+
 In this deployment we optimize for availability.
 
 Get a [pull secret](https://access.redhat.com/terms-based-registry/#/accounts) for the registry.redhat.con and store ir in a file called `pull-secret.base64`
@@ -33,4 +37,4 @@ In order to deploy execute the following steps
     ```shell
     oc new-project datacenter-b
     oc process -f ./template.yaml -p NAMESPACE=datacenter-b -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET | oc apply -f - -n datacenter-b
-    ```
+
