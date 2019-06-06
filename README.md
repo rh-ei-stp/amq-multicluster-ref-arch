@@ -2,7 +2,7 @@
 
 The architecture deployed by this template is shown in this diagram:
 
-![amq-dr-reference-architecture](./media/amq-dr-arch.jpg)
+![amq-dr-reference-architecture](./media/amq-dr-arch.png)
 
 In this deployment we optimize for availability.
 
