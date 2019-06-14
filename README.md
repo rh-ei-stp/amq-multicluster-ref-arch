@@ -8,7 +8,7 @@ In this diagram two sites/data-centers are represented. A GTM directs traffic to
 Messages sent to the brokers are duplicated and sent to the brokers of the other data-center, this ensures that in case of DR messages are not lost.
 
 *Note*: I personally do not understand how those two things (alternative route and message replication) can work together, I'd like the AMQ SMEs to create the configuration and show us.
-
+ 
 In this deployment we optimize for availability.
 
 Get a [pull secret](https://access.redhat.com/terms-based-registry/#/accounts) for the registry.redhat.con and store ir in a file called `pull-secret.base64`
