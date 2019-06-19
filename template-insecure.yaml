@@ -434,8 +434,7 @@ objects:
     triggers:
     - type: ConfigChange
 - apiVersion: certmanager.k8s.io/v1alpha1
-  #kind: Issuer
-  kind: ClusterIssuer
+  kind: Issuer
   metadata:
     name: self-signer
   spec:
@@ -449,7 +448,6 @@ objects:
     secretName: rootca
     issuerRef:
       name: self-signer
-      kind: ClusterIssuer #
     commonName: "ca.self-signer.cert-manager"
     isCA: true
 # Create an Issuer that uses the above generated CA certificate to issue certs
@@ -462,7 +460,7 @@ objects:
 #      secretName: rootca
 # Create an Issuer that uses the above generated CA certificate to issue certs
 - apiVersion: certmanager.k8s.io/v1alpha1
-  kind: ClusterIssuer
+  kind: Issuer
   metadata:
     name: ${CERT_ISSUER}
   spec:
@@ -481,7 +479,7 @@ objects:
     - ${INTERCONNECT_APPLICATION_NAME}.${NAMESPACE}.svc
     - ${INTERCONNECT_APPLICATION_NAME}-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
     - ${INTERCONNECT_APPLICATION_NAME}-console-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
-    - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_ROUTER_HOST}.svc #FIXME mcostell bad hack to add back in a "second ca"
+   # - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_ROUTER_HOST}.svc #FIXME mcostell bad hack to add back in a "second ca"
    # - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
    # - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.apps.${DEFAULT_ROUTE_DOMAIN}
           
@@ -508,6 +506,9 @@ objects:
     - port: 55672
       name: inter-router
       targetPort: 55672
+    - port: 55673
+      name: inter-router-insecure
+      targetPort: 55673
     selector:
       deploymentConfig: ${INTERCONNECT_APPLICATION_NAME}
 - kind: DeploymentConfig
@@ -551,6 +552,9 @@ objects:
             protocol: TCP
           - name: inter
             containerPort: 55672
+            protocol: TCP
+          - name: inter-insecure
+            containerPort: 55673
             protocol: TCP
           env:
           - name: APPLICATION_NAME
@@ -647,14 +651,14 @@ objects:
           id: Router.${HOSTNAME}
       }
 
-      # only allow anonymous connections over localhost
+      #Insecure AMQP connection
       listener {
-          host: localhost
+          host: 0.0.0.0
           port: amqp
           authenticatePeer: no
           saslMechanisms: ANONYMOUS
       }
-
+      #Secure AMQPS connection 
       listener {
           host: 0.0.0.0
           port: amqps
@@ -663,7 +667,7 @@ objects:
           requireSsl: true
           saslMechanisms: EXTERNAL
       }
-
+      #Secure interrouter listener 
       listener {
           host: 0.0.0.0
           port: 55672
@@ -672,33 +676,17 @@ objects:
           saslMechanisms: EXTERNAL
           sslProfile: inter_router_tls
           requireSsl: true
-          #FIXME return to these values 
-          #sslProfile: inter_router_tls
-          #authenticatePeer: yes
-          #requireSsl: true
-          #saslMechanisms: EXTERNAL
       }
-
-      sslProfile {
-          name: inter_router_tls
-          certFile: /etc/qpid-dispatch-certs/inter-router/tls.crt
-          privateKeyFile: /etc/qpid-dispatch-certs/inter-router/tls.key
-          caCertFile: /etc/qpid-dispatch-certs/inter-router/ca.crt
+      #FIXME mcostell Insecure interrouter listener 
+      listener {
+         host: 0.0.0.0
+         port: 55673
+         role:inter-router
+         authenticatePeer: no
+         saslMechanisms: ANONYMOUS
+         
       }
-
-      sslProfile {
-          name: service_tls
-          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
-          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
-          caCertFile: /etc/qpid-dispatch-certs/client-ca/ca.crt
-      }
-
-      sslProfile {
-          name: console_tls
-          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
-          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
-      }
-
+      #Web console for Interconnect 
       listener {
           host: 0.0.0.0
           port: 8672
@@ -708,32 +696,27 @@ objects:
           http: true
           httpRootDir: /usr/share/qpid-dispatch/console
       }
-
-      address {
-          prefix: closest
-          distribution: closest
+      #SSL Profile for secure inter-router connections 
+      sslProfile {
+          name: inter_router_tls
+          certFile: /etc/qpid-dispatch-certs/inter-router/tls.crt
+          privateKeyFile: /etc/qpid-dispatch-certs/inter-router/tls.key
+          caCertFile: /etc/qpid-dispatch-certs/inter-router/ca.crt
       }
-
-      address {
-          prefix: multicast
-          distribution: multicast
+      #SSL Profile for intereconnect amqps 
+      sslProfile {
+          name: service_tls
+          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
+          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
+          caCertFile: /etc/qpid-dispatch-certs/client-ca/ca.crt
       }
-
-      address {
-          prefix: unicast
-          distribution: closest
+      #SSL Profile for interconnect web console 
+      sslProfile {
+          name: console_tls
+          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
+          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
       }
-
-      address {
-          prefix: exclusive
-          distribution: closest
-      }
-
-      address {
-          prefix: broadcast
-          distribution: multicast
-      }
-
+      #Broker Connector 
       connector {
           name: broker-mark-amq-amqp
           role: route-container
@@ -742,21 +725,56 @@ objects:
           sslProfile: service_tls
           saslMechanisms: ANONYMOUS
       }  
-      
+      #inter-router connection for remote cluster interconnects 
       connector {
          name: remote-mesh-router
          role: inter-router
-         host: ${REMOTE_ROUTER_HOST} #this should be the external ingress endpoint for the other router for instance: amq-interconnect-datacentre-b.apps.cluster-austin-5274.austin-5274.openshiftworkshop.com
-         port: 443 #amqps will need to come through ha proxy via 443
-         sslProfile: inter_router_tls
+         host: ${INTERCONNECT_APPLICATION_NAME}.${REMOTE_NAMESPACE}.svc #FIXME this should be leaving the router
+         port: 55673 #FIXME insecure interrouter port 
          saslMechanisms: ANONYMOUS
-         #cost: 100 #TODO mcostell we plan to multicast messages as a result, we likely want to weight each node on the graph to the same cost, adding this here to check that assumption  
+         cost: 100 #TODO mcostell we plan to multicast messages as a result, we likely want to weight each node on the graph to the same cost, adding this here to check that assumption  
          maxSessions: 10000 #FIXME mcostell ensure this makes sense. This is the maximum number of inflight sessions that can be made on the connection 
          linkCapacity: 10000 #FIXME mcostell ensure this makes sense. This is the number of inflight messages that can be in flight per link 
          messageLoggingComponents: all #FIXME mcostell this likely does not make sense in most contexts, leaving here to discuss the logging needs with the group  
          idleTimeoutSeconds: 3 #FIXME mcostell the default timeout is 16 seconds which would be far too high for our use case; however, 3 seconds might be too long 
-         #stripAnnotations: out #TODO it is likely dispatch router annotations should be stripped as it goes to the next router, check this assumption 
       }
+      #Configure address waypoints for broker interaction
+      address{
+         prefix: queue
+         distribution: multicast
+         waypoint: yes
+      }
+      
+      autoLink {
+         addr: queue
+         connection: broker-mark-amq-amqp
+         dir: out
+      }
+      
+      autoLink {
+         addr: queue
+         connection: broker-mark-amq-amqp
+         dir: in
+      }
+      
+      address{
+         prefix: topic
+         distribution: multicast
+         waypoint: yes
+      }
+      
+      autoLink {
+         addr: topic
+         connection: broker-mark-amq-amqp
+         dir: out
+      }
+      
+      autoLink {
+         addr: topic
+         connection: broker-mark-amq-amqp
+         dir: in
+      }
+#SECRETS 
 - kind: Secret
   apiVersion: v1
   metadata:
@@ -818,7 +836,7 @@ objects:
       pwcheck_method: auxprop
       auxprop_plugin: sasldb
       sasldb_path: /opt/interconnect/etc/qdrouterd.sasldb
-      mech_list: SCRAM-SHA-1 DIGEST-MD5 PLAIN EXTERNAL      
+      mech_list: SCRAM-SHA-1 DIGEST-MD5 PLAIN EXTERNAL ANONYMOUS     
 # parameters
 parameters:
 - description: The name for the application.
@@ -961,10 +979,6 @@ parameters:
 - description: pull secret from registry.redhat.com.
   name: PULL_SECRET
   required: true
-- description: host of the renmote router in a seperate datacentre #FIXME we need to go about this a bit better 
-  name: REMOTE_ROUTER_HOST
-  required: true
 - description: REMOTE_NAMESPACE is the namespace of the remote router #FIXME this is a bad hack 
   name: REMOTE_NAMESPACE
   required: true
-

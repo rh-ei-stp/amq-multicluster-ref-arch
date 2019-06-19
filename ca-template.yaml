@@ -1,0 +1,53 @@
+apiVersion: template.openshift.io/v1 #v1
+kind: Template
+labels:
+  template: cluster-wide-ca-template
+  #xpaas: 1.4.16
+message: A clusterwide CA has been established for this project. It will handle the protocol(s) "${AMQ_PROTOCOL}". The username/password for accessing the service is ${AMQ_USER}/${AMQ_PASSWORD}. Please be sure to create a secret named "${AMQ_SECRET}" containing the trust store and key store files ("${AMQ_TRUSTSTORE}" and "${AMQ_KEYSTORE}") used for serving secure content.
+metadata:
+  annotations:
+    description: Template for clusterwide CA. This template supports the issuing of certificates across cluster namespaces.
+    iconClass: icon-amq
+    openshift.io/display-name: Cluster Wide CA Issuer (Persistence, clustered, with SSL)
+    openshift.io/provider-display-name: Red Hat, Inc.
+    tags: cert-manager
+    template.openshift.io/documentation-url: 'https://access.redhat.com/documentation/en/red-hat-amq/'
+    template.openshift.io/long-description: >-
+      This template defines resources needed to issue certificates  
+    template.openshift.io/support-url: 'https://access.redhat.com'    
+    version: 1.4.16
+  name: cluster-issuer-cert-manager-template
+objects:
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Issuer
+  metadata:
+    name: self-signer
+  spec:
+    selfSigned: {}
+# Generate a RootCA Certificate used to sign certificates for the webhook
+- apiVersion: certmanager.k8s.io/v1alpha1
+  kind: Certificate
+  metadata:
+    name: rootca
+  spec:
+    secretName: rootca
+    issuerRef:
+      name: self-signer
+      #kind: ClusterIssuer #
+    commonName: "ca.self-signer.cert-manager"
+    isCA: true
+# Create an Issuer that uses the above generated CA certificate to issue certs
+- apiVersion: certmanager.k8s.io/v1alpha1
+  #kind: ClusterIssuer
+  kind: ClusterIssuer
+  metadata:
+    name: ${CERT_ISSUER}
+  spec:
+    ca:
+      secretName: rootca
+parameters:
+- description: Cert Issuer
+  displayName: Cert Issuer
+  name: CERT_ISSUER
+  required: true
+  value: internalpki

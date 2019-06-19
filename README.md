@@ -30,16 +30,36 @@ In order to deploy execute the following steps
     oc apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.8.0/cert-manager-openshift.yaml
     ```
 
-3. Deploy AMQ and Interconnect in the first datacenter (emulated as a namespace):
+3. Deploy AMQ and Interconnect in the first datacenter (emulated as a namespace). As Interconnect will need to  connect to "remote" routers, use the name of the remote namespace (even if it doesn't exist):
 
     ```shell
     oc new-project datacenter-a
-    oc process -f ./template.yaml -p NAMESPACE=datacenter-a -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET | oc apply -f - -n datacenter-a
+    oc process -f ./template-insecure.yaml -p NAMESPACE=datacenter-a -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET REMOTE_NAMESPACE=datacenter-b 
+    	| oc apply -f - -n datacenter-a
     ```
 
-4. Deploy AMQ and Interconnect in the second datacenter (emulated as a namespace):
+4. Deploy AMQ and Interconnect in the second datacenter (emulated as a namespace). As Interconnect will need to connect to "remote" routers, use the name of the remote namespace (even if it doesn't exist):
 
     ```shell
     oc new-project datacenter-b
-    oc process -f ./template.yaml -p NAMESPACE=datacenter-b -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET | oc apply -f - -n datacenter-b
+    oc process -f ./template-insecure.yaml -p NAMESPACE=datacenter-b -p DEFAULT_ROUTE_DOMAIN=$DEFAULT_ROUTE_DOMAIN -p PULL_SECRET=$PULL_SECRET REMOTE_NAMESPACE=datacenter-a
+    	| oc apply -f - -n datacenter-b ```
 
+Upon provisioning both namespaces, there should be an available router topology. For example: 
+
+```shell
+$ oc exec amq-interconnect-1-ts7gj -it -- qdstat -c 
+Connections
+  id  host                                        container                             role             dir  security                                  authentication  tenant
+  ==============================================================================================================================================================================
+  2   amq-interconnect.datacenter-a.svc:55673     Router.amq-interconnect-1-f8j88       inter-router     out  no-security                               anonymous-user  
+  4   10.130.2.38:55672                           Router.amq-interconnect-1-t4bht       inter-router     out  TLSv1/SSLv3(DHE-RSA-AES256-GCM-SHA384)    x.509           
+  8   10.131.0.29:44094                           Router.amq-interconnect-1-f8j88       inter-router     in   no-security                               anonymous-user  
+  9   broker-amq-headless.datacenter-b.svc:amqps  broker                                route-container  out  TLSv1/SSLv3(ECDHE-RSA-AES256-GCM-SHA384)  anonymous-user  
+  14  10.130.2.12                                 dd282512-128a-ab46-b5a5-140f346ee0f9  normal           in   no-security                               no-auth         
+  15  127.0.0.1:57932                             6a6cb5ef-d417-4554-a5c1-f9742e1a064f  normal           in   no-security                               no-auth         
+```
+
+
+As represented by this diagram based depiction of the topology available via the Interconnect console: 
+![intereconnect topology](./media/interconnect-topology.png) 
