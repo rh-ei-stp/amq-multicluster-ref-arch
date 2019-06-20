@@ -1,0 +1,40 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: amq-broker-console
+objects:
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: broker-console-0
+  spec:
+    host: broker-amq-0.broker-amq-headless.${NAMESPACE}.svc
+    port:
+      targetPort: console-jolokia
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: passthrough
+    to:
+      kind: Service
+      name: broker-amq-headless
+      weight: 100
+    wildcardPolicy: None
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: broker-console-1
+  spec:
+    host: broker-amq-1.broker-amq-headless.${NAMESPACE}.svc
+    port:
+      targetPort: console-jolokia
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: passthrough
+    to:
+      kind: Service
+      name: broker-amq-headless
+      weight: 100
+    wildcardPolicy: None
+parameters:
+- name: NAMESPACE
+  required: true
