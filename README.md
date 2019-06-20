@@ -78,9 +78,9 @@ To deploy routes to the AMQ consoles:
 
 Apply the broker-console-route template, for `datacenter-a` and `datacenter-b`
 
-`oc process -f broker-console-route.yml NAMESPACE=datacenter-a -o yaml | oc apply -f -`
+`oc process -f broker-console-route.yml NAMESPACE=datacenter-a -o yaml | oc apply -n datacenter-a -f -`
 
-Find the IP of your cluster's router. You can curl an existing route, for example `dig +short <some existing route>`
+Find the IP of your cluster's router. You can query an existing route, for example `dig +short <some existing route>`
 
 Add the following entries to `/etc/hosts`
 
