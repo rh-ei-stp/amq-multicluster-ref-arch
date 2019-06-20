@@ -745,32 +745,27 @@ objects:
          waypoint: yes
       }
       
-      autoLink {
-         addr: queue
-         connection: broker-mark-amq-amqp
+      autoLink{
+         addr: queue.test
+         connection: broker-mark-amq-amqp 
          dir: out
       }
       
-      autoLink {
-         addr: queue
-         connection: broker-mark-amq-amqp
+      autoLink{
+         addr: queue.test
+         connection: broker-mark-amq-amqp 
          dir: in
       }
       
-      address{
-         prefix: topic
-         distribution: multicast
-         waypoint: yes
-      }
       
-      autoLink {
-         addr: topic
+      linkRoute {
+         prefix: topic
          connection: broker-mark-amq-amqp
          dir: out
       }
       
-      autoLink {
-         addr: topic
+      linkRoute {
+         prefix: topic
          connection: broker-mark-amq-amqp
          dir: in
       }
