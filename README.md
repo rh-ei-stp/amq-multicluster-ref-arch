@@ -76,13 +76,15 @@ As represented by this diagram based depiction of the topology available via the
 
 To deploy routes to the AMQ consoles:
 
-Apply the broker-console-route template, for `datacenter-a` and `datacenter-b`
+Apply the broker-console-route template, each replica in the AMQ stateful set, e.g. `0` and `1` and each namespace `datacenter-a` and `datacenter-b`. You will end up with a service and route for each AMQ pod.
 
-`oc process -f broker-console-route.yml NAMESPACE=datacenter-a -o yaml | oc apply -n datacenter-a -f -`
+For example, create a route and service to access to console for the first AMQ replica in `datacenter-a`:
+
+`oc process -f broker-console-route.yml REPLICA=0 NAMESPACE=datacenter-a -o yaml | oc apply -n datacenter-a -f -`
 
 Find the IP of your cluster's router. You can query an existing route, for example `dig +short <some existing route>`
 
-Add the following entries to `/etc/hosts`
+Add entries to `/etc/hosts` so that the hostnames resolve to your cluster router, for example:
 
 ```
 52.45.244.88  broker-amq-0.broker-amq-headless.datacenter-a.svc

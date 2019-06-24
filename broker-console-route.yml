@@ -6,9 +6,9 @@ objects:
 - apiVersion: route.openshift.io/v1
   kind: Route
   metadata:
-    name: broker-console-0
+    name: broker-console-${REPLICA}
   spec:
-    host: broker-amq-0.broker-amq-headless.${NAMESPACE}.svc
+    host: broker-amq-${REPLICA}.broker-amq-headless.${NAMESPACE}.svc
     port:
       targetPort: console-jolokia
     tls:
@@ -16,25 +16,28 @@ objects:
       termination: passthrough
     to:
       kind: Service
-      name: broker-amq-headless
+      name: broker-amq-${REPLICA}-console
       weight: 100
     wildcardPolicy: None
-- apiVersion: route.openshift.io/v1
-  kind: Route
+- apiVersion: v1
+  kind: Service
   metadata:
-    name: broker-console-1
+    name: broker-amq-${REPLICA}-console
   spec:
-    host: broker-amq-1.broker-amq-headless.${NAMESPACE}.svc
-    port:
-      targetPort: console-jolokia
-    tls:
-      insecureEdgeTerminationPolicy: Redirect
-      termination: passthrough
-    to:
-      kind: Service
-      name: broker-amq-headless
-      weight: 100
-    wildcardPolicy: None
+    clusterIP: None
+    ports:
+    - name: console-jolokia
+      port: 8161
+      protocol: TCP
+      targetPort: 8161
+    publishNotReadyAddresses: true
+    selector:
+      deploymentConfig: broker-amq
+      statefulset.kubernetes.io/pod-name: broker-amq-${REPLICA}
+    sessionAffinity: None
+    type: ClusterIP
 parameters:
 - name: NAMESPACE
+  required: true
+- name: REPLICA
   required: true
