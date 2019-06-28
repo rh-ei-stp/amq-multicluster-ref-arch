@@ -1,31 +1,20 @@
-apiVersion: template.openshift.io/v1 #v1
+apiVersion: template.openshift.io/v1
 kind: Template
 labels:
-  template: interconnect-amq-broker-72-persistence-clustered-ssl
-  xpaas: 1.4.16
-message: A new messaging service with SSL support has been created in your project. It will handle the protocol(s) "${AMQ_PROTOCOL}". The username/password for accessing the service is ${AMQ_USER}/${AMQ_PASSWORD}. Please be sure to create a secret named "${AMQ_SECRET}" containing the trust store and key store files ("${AMQ_TRUSTSTORE}" and "${AMQ_KEYSTORE}") used for serving secure content.
+  template: interconnect-amq-broker-persistence-clustered-ssl
+message: A new messaging service with SSL support has been created in your project. It will handle the protocol(s) "${AMQ_PROTOCOL}". The username/password for accessing the service is ${AMQ_USER}/${AMQ_PASSWORD}.
 metadata:
   annotations:
-    description: Application template for Red Hat AMQ brokers. This template supports SSL and requires usage of OpenShift secrets.
-    iconClass: icon-amq
-    openshift.io/display-name: Red Hat AMQ Broker 7.2 (Persistence, clustered, with SSL)
-    openshift.io/provider-display-name: Red Hat, Inc.
-    tags: messaging,amq,xpaas
-    template.openshift.io/documentation-url: 'https://access.redhat.com/documentation/en/red-hat-amq/'
-    template.openshift.io/long-description: >-
-      This template defines resources needed to develop a Red Hat AMQ Broker 7.2 based application, including a statefulset configuration, using persistent storage and secure communication using SSL.
-    template.openshift.io/support-url: 'https://access.redhat.com'    
-    version: 1.4.16
-  name: interconnect-amq-broker-72-persistence-clustered-ssl
+    description: Application template for Red Hat AMQ brokers and Interconnect routers demonstrating multi-datacenter reference architecture
+  name: interconnect-amq-broker-persistence-clustered-ssl
 objects:
 - apiVersion: v1
   kind: Secret
   metadata:
-    name: 5318211-rspazzol-pull-secret
+    name: image-pull-secret
   data:
     .dockerconfigjson: ${PULL_SECRET}
-  type: kubernetes.io/dockerconfigjson        
-  
+  type: kubernetes.io/dockerconfigjson
 - apiVersion: certmanager.k8s.io/v1alpha1
   kind: Certificate
   metadata:
@@ -34,6 +23,7 @@ objects:
     secretName: ${AMQ_APPLICATION_NAME}-certs
     issuerRef:
       name: ${CERT_ISSUER}
+      kind: ClusterIssuer
     dnsNames:
     - ${AMQ_NAME}-amq-headless.${NAMESPACE}.svc
 - apiVersion: v1
@@ -434,40 +424,6 @@ objects:
     triggers:
     - type: ConfigChange
 - apiVersion: certmanager.k8s.io/v1alpha1
-  kind: Issuer
-  metadata:
-    name: self-signer
-  spec:
-    selfSigned: {}
-# Generate a RootCA Certificate used to sign certificates for the webhook
-- apiVersion: certmanager.k8s.io/v1alpha1
-  kind: Certificate
-  metadata:
-    name: rootca
-  spec:
-    secretName: rootca
-    issuerRef:
-      name: self-signer
-    commonName: "ca.self-signer.cert-manager"
-    isCA: true
-# Create an Issuer that uses the above generated CA certificate to issue certs
-#- apiVersion: certmanager.k8s.io/v1alpha1
-#  kind: Issuer
-#  metadata:
-#    name: ${CERT_ISSUER}
-#  spec:
-#    ca:
-#      secretName: rootca
-# Create an Issuer that uses the above generated CA certificate to issue certs
-- apiVersion: certmanager.k8s.io/v1alpha1
-  kind: Issuer
-  metadata:
-    name: ${CERT_ISSUER}
-  spec:
-    ca:
-      secretName: rootca
-
-- apiVersion: certmanager.k8s.io/v1alpha1
   kind: Certificate
   metadata:
     name: ${INTERCONNECT_APPLICATION_NAME}-certs
@@ -475,14 +431,12 @@ objects:
     secretName: ${INTERCONNECT_APPLICATION_NAME}-certs
     issuerRef:
       name: ${CERT_ISSUER}
+      kind: ClusterIssuer
     dnsNames:
     - ${INTERCONNECT_APPLICATION_NAME}.${NAMESPACE}.svc
     - ${INTERCONNECT_APPLICATION_NAME}-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
     - ${INTERCONNECT_APPLICATION_NAME}-console-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
-   # - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_ROUTER_HOST}.svc #FIXME mcostell bad hack to add back in a "second ca"
-   # - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
-   # - ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.apps.${DEFAULT_ROUTE_DOMAIN}
-          
+    - ${INTERCONNECT_APPLICATION_NAME}-interrouter-${NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
 - kind: Service
   apiVersion: v1
   metadata:
@@ -491,7 +445,6 @@ objects:
       application: ${INTERCONNECT_APPLICATION_NAME}
     annotations:
       description: The router's AMQP port.
-      #service.alpha.openshift.io/serving-cert-secret-name: ${INTERCONNECT_APPLICATION_NAME}-cert
   spec:
     ports:
     - port: 5672
@@ -507,7 +460,7 @@ objects:
       name: inter-router
       targetPort: 55672
     - port: 55673
-      name: inter-router-insecure
+      name: inter-router-noauth
       targetPort: 55673
     selector:
       deploymentConfig: ${INTERCONNECT_APPLICATION_NAME}
@@ -535,7 +488,7 @@ objects:
           application: "${INTERCONNECT_APPLICATION_NAME}"
       spec:
         imagePullSecrets:
-        - name: 5318211-rspazzol-pull-secret
+        - name: image-pull-secret
         serviceAccountName: ${INTERCONNECT_APPLICATION_NAME}
         terminationGracePeriodSeconds: 60
         containers:
@@ -553,7 +506,7 @@ objects:
           - name: inter
             containerPort: 55672
             protocol: TCP
-          - name: inter-insecure
+          - name: inter-noauth
             containerPort: 55673
             protocol: TCP
           env:
@@ -575,7 +528,7 @@ objects:
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-          image: registry.redhat.io/amq7/amq-interconnect:1.4 #FIXME parameterize this 
+          image: ${ROUTER_IMAGE} 
           volumeMounts:
           - name: certs
             readOnly: true
@@ -651,14 +604,15 @@ objects:
           id: Router.${HOSTNAME}
       }
 
-      #Insecure AMQP connection
+      # Insecure AMQP connection
       listener {
           host: 0.0.0.0
           port: amqp
           authenticatePeer: no
           saslMechanisms: ANONYMOUS
       }
-      #Secure AMQPS connection 
+
+      # Secure AMQPS connection
       listener {
           host: 0.0.0.0
           port: amqps
@@ -667,26 +621,30 @@ objects:
           requireSsl: true
           saslMechanisms: EXTERNAL
       }
-      #Secure interrouter listener 
+
+      # Secure interrouter listener
       listener {
           host: 0.0.0.0
           port: 55672
           role: inter-router
-          authenticatePeer: yes
-          saslMechanisms: EXTERNAL
           sslProfile: inter_router_tls
+          authenticatePeer: yes
           requireSsl: true
+          saslMechanisms: EXTERNAL
       }
-      #FIXME mcostell Insecure interrouter listener 
+      
+      # Cross-cluster interrouter listener (unauthenticated)
       listener {
-         host: 0.0.0.0
-         port: 55673
-         role:inter-router
-         authenticatePeer: no
-         saslMechanisms: ANONYMOUS
-         
+          host: 0.0.0.0
+          port: 55673
+          role: inter-router
+          sslProfile: inter_router_tls
+          authenticatePeer: no
+          requireSsl: true
+          saslMechanisms: ANONYMOUS
       }
-      #Web console for Interconnect 
+      
+      # Web console for Interconnect
       listener {
           host: 0.0.0.0
           port: 8672
@@ -696,80 +654,86 @@ objects:
           http: true
           httpRootDir: /usr/share/qpid-dispatch/console
       }
-      #SSL Profile for secure inter-router connections 
+
+      # SSL Profile for secure inter-router connections
       sslProfile {
           name: inter_router_tls
           certFile: /etc/qpid-dispatch-certs/inter-router/tls.crt
           privateKeyFile: /etc/qpid-dispatch-certs/inter-router/tls.key
           caCertFile: /etc/qpid-dispatch-certs/inter-router/ca.crt
       }
-      #SSL Profile for intereconnect amqps 
+
+      # SSL Profile for interconnect amqps
       sslProfile {
           name: service_tls
           certFile: /etc/qpid-dispatch-certs/normal/tls.crt
           keyFile: /etc/qpid-dispatch-certs/normal/tls.key
           caCertFile: /etc/qpid-dispatch-certs/client-ca/ca.crt
       }
-      #SSL Profile for interconnect web console 
+
+      # SSL Profile for interconnect web console
       sslProfile {
           name: console_tls
           certFile: /etc/qpid-dispatch-certs/normal/tls.crt
           keyFile: /etc/qpid-dispatch-certs/normal/tls.key
       }
-      #Broker Connector 
+
+      # Broker Connector
       connector {
-          name: broker-mark-amq-amqp
+          name: broker-amq-amqp
           role: route-container
           host: ${AMQ_NAME}-amq-headless.${NAMESPACE}.svc
           port: amqps
           sslProfile: service_tls
           saslMechanisms: ANONYMOUS
-      }  
-      #inter-router connection for remote cluster interconnects 
+      }
+      
+      # Inter-router connection for remote cluster interconnects
       connector {
          name: remote-mesh-router
          role: inter-router
-         host: ${INTERCONNECT_APPLICATION_NAME}.${REMOTE_NAMESPACE}.svc #FIXME this should be leaving the router
-         port: 55673 #FIXME insecure interrouter port 
+         host: ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
+         port: 443
+         sslProfile: inter_router_tls
+         verifyHostname: no
          saslMechanisms: ANONYMOUS
-         cost: 100 #TODO mcostell we plan to multicast messages as a result, we likely want to weight each node on the graph to the same cost, adding this here to check that assumption  
+         cost: 100
          maxSessions: 10000 #FIXME mcostell ensure this makes sense. This is the maximum number of inflight sessions that can be made on the connection 
          linkCapacity: 10000 #FIXME mcostell ensure this makes sense. This is the number of inflight messages that can be in flight per link 
          messageLoggingComponents: all #FIXME mcostell this likely does not make sense in most contexts, leaving here to discuss the logging needs with the group  
          idleTimeoutSeconds: 3 #FIXME mcostell the default timeout is 16 seconds which would be far too high for our use case; however, 3 seconds might be too long 
       }
-      #Configure address waypoints for broker interaction
+
+      # Configure address waypoints for broker interaction
       address{
          prefix: queue
-         distribution: multicast
          waypoint: yes
+         distribution: closest
       }
-      
+
       autoLink{
          addr: queue.test
-         connection: broker-mark-amq-amqp 
-         dir: out
+         connection: broker-amq-amqp
+         direction: out
       }
-      
+
       autoLink{
          addr: queue.test
-         connection: broker-mark-amq-amqp 
-         dir: in
+         connection: broker-amq-amqp
+         direction: in
       }
-      
-      
+
       linkRoute {
          prefix: topic
-         connection: broker-mark-amq-amqp
-         dir: out
+         connection: broker-amq-amqp
+         direction: out
       }
-      
+
       linkRoute {
          prefix: topic
-         connection: broker-mark-amq-amqp
-         dir: in
+         connection: broker-amq-amqp
+         direction: in
       }
-#SECRETS 
 - kind: Secret
   apiVersion: v1
   metadata:
@@ -814,7 +778,7 @@ objects:
       application: ${INTERCONNECT_APPLICATION_NAME}
   spec:
     port:
-      targetPort: 55672
+      targetPort: 55673
     tls:
       termination: passthrough
     to:
@@ -832,7 +796,6 @@ objects:
       auxprop_plugin: sasldb
       sasldb_path: /opt/interconnect/etc/qdrouterd.sasldb
       mech_list: SCRAM-SHA-1 DIGEST-MD5 PLAIN EXTERNAL ANONYMOUS     
-# parameters
 parameters:
 - description: The name for the application.
   displayName: Application Name
@@ -846,7 +809,7 @@ parameters:
 - description: Queue names, separated by commas. These queues will be automatically created when the broker starts. If left empty, queues will be still created dynamically.
   displayName: Queues
   name: AMQ_QUEUES
-  value: demoQueue
+  value: queue.test
 - description: Address names, separated by commas. These addresses will be automatically created when the broker starts. If left empty, addresses will be still created dynamically.
   displayName: Addresses
   name: AMQ_ADDRESSES
@@ -933,10 +896,15 @@ parameters:
   name: AMQ_MULTICAST_PREFIX
   required: false
 - description: Broker Image
-  displayName: Image
+  displayName: Broker Image
   name: AMQ_IMAGE
   required: true
   value: registry.redhat.io/amq-broker-7/amq-broker-73-openshift:7.3
+- description: Router Image
+  displayName: Router Image
+  name: ROUTER_IMAGE
+  required: true
+  value: registry.redhat.io/amq7/amq-interconnect:1.4
 - description: Cert Issuer
   displayName: Cert Issuer
   name: CERT_ISSUER
@@ -959,21 +927,16 @@ parameters:
   description: The name of the secret that contains the certificate with which to authenticate inter-router connections.
   name: INTER_ROUTER_CERTS_SECRET
   value: inter-router-certs
-- displayName: Client CA Certificates
-  description: The name of the secret that contains the CA certificate with which valid client certificates were signed.
-  name: IC_CLIENT_CA_SECRET
-  value: client-ca
 - description: Create a user name for accessing the router's web console.
   name: IC_USERNAME
   value: admin
 - description: Create a password for accessing the router's web console.
   from: '[A-Z0-9]{8}'
-  #generate: expression
   value: admin
   name: IC_PASSWORD
 - description: pull secret from registry.redhat.com.
   name: PULL_SECRET
   required: true
-- description: REMOTE_NAMESPACE is the namespace of the remote router #FIXME this is a bad hack 
+- description: REMOTE_NAMESPACE is the namespace of the remote router
   name: REMOTE_NAMESPACE
   required: true
