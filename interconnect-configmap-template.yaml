@@ -1,20 +1,11 @@
-apiVersion: template.openshift.io/v1 #v1
+apiVersion: template.openshift.io/v1
 kind: Template
 labels:
   template: interconnect-configmap-template
 message: Apply parameterized interconnect configmap 
 metadata:
   annotations:
-    description: Template for clusterwide CA. This template supports the issuing of certificates across cluster namespaces.
-    iconClass: icon-amq
-    openshift.io/display-name: interconnect-configmap-template
-    openshift.io/provider-display-name: Red Hat, Inc.
-    tags: interconnect
-    template.openshift.io/documentation-url: 'https://access.redhat.com/documentation/en/red-hat-amq/'
-    template.openshift.io/long-description: >-
-      This template allows application of changes to configmaps   
-    template.openshift.io/support-url: 'https://access.redhat.com'    
-    version: 1.4.16
+    description: Template to apply custom Interconnect config for convenience.
   name: interconnect-configmap-template
 objects:
 - kind: ConfigMap
@@ -30,14 +21,15 @@ objects:
           id: Router.${HOSTNAME}
       }
 
-      #Insecure AMQP connection
+      # Insecure AMQP connection
       listener {
           host: 0.0.0.0
           port: amqp
           authenticatePeer: no
           saslMechanisms: ANONYMOUS
       }
-      #Secure AMQPS connection 
+
+      # Secure AMQPS connection
       listener {
           host: 0.0.0.0
           port: amqps
@@ -46,26 +38,30 @@ objects:
           requireSsl: true
           saslMechanisms: EXTERNAL
       }
-      #Secure interrouter listener 
+
+      # Secure interrouter listener
       listener {
           host: 0.0.0.0
           port: 55672
           role: inter-router
-          authenticatePeer: yes
-          saslMechanisms: EXTERNAL
           sslProfile: inter_router_tls
+          authenticatePeer: yes
           requireSsl: true
+          saslMechanisms: EXTERNAL
       }
-      #FIXME mcostell Insecure interrouter listener 
+      
+      # Cross-cluster interrouter listener (unauthenticated)
       listener {
-         host: 0.0.0.0
-         port: 55673
-         role:inter-router
-         authenticatePeer: no
-         saslMechanisms: ANONYMOUS
-         
+          host: 0.0.0.0
+          port: 55673
+          role: inter-router
+          sslProfile: inter_router_tls
+          authenticatePeer: no
+          requireSsl: true
+          saslMechanisms: ANONYMOUS
       }
-      #Web console for Interconnect 
+      
+      # Web console for Interconnect
       listener {
           host: 0.0.0.0
           port: 8672
@@ -75,78 +71,85 @@ objects:
           http: true
           httpRootDir: /usr/share/qpid-dispatch/console
       }
-      #SSL Profile for secure inter-router connections 
+
+      # SSL Profile for secure inter-router connections
       sslProfile {
           name: inter_router_tls
           certFile: /etc/qpid-dispatch-certs/inter-router/tls.crt
           privateKeyFile: /etc/qpid-dispatch-certs/inter-router/tls.key
           caCertFile: /etc/qpid-dispatch-certs/inter-router/ca.crt
       }
-      #SSL Profile for intereconnect amqps 
+
+      # SSL Profile for interconnect amqps
       sslProfile {
           name: service_tls
           certFile: /etc/qpid-dispatch-certs/normal/tls.crt
           keyFile: /etc/qpid-dispatch-certs/normal/tls.key
           caCertFile: /etc/qpid-dispatch-certs/client-ca/ca.crt
       }
-      #SSL Profile for interconnect web console 
+
+      # SSL Profile for interconnect web console
       sslProfile {
           name: console_tls
           certFile: /etc/qpid-dispatch-certs/normal/tls.crt
           keyFile: /etc/qpid-dispatch-certs/normal/tls.key
       }
-      #Broker Connector 
+
+      # Broker Connector
       connector {
-          name: broker-mark-amq-amqp
+          name: broker-amq-amqp
           role: route-container
           host: ${AMQ_NAME}-amq-headless.${NAMESPACE}.svc
           port: amqps
           sslProfile: service_tls
           saslMechanisms: ANONYMOUS
-      }  
-      #inter-router connection for remote cluster interconnects 
+      }
+      
+      # Inter-router connection for remote cluster interconnects
       connector {
          name: remote-mesh-router
          role: inter-router
-         host: ${INTERCONNECT_APPLICATION_NAME}.${REMOTE_NAMESPACE}.svc #FIXME this should be leaving the router
-         port: 55673 #FIXME insecure interrouter port 
+         host: ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
+         port: 443
+         sslProfile: inter_router_tls
+         verifyHostname: no
          saslMechanisms: ANONYMOUS
-         cost: 100 #TODO mcostell we plan to multicast messages as a result, we likely want to weight each node on the graph to the same cost, adding this here to check that assumption  
+         cost: 100
          maxSessions: 10000 #FIXME mcostell ensure this makes sense. This is the maximum number of inflight sessions that can be made on the connection 
          linkCapacity: 10000 #FIXME mcostell ensure this makes sense. This is the number of inflight messages that can be in flight per link 
          messageLoggingComponents: all #FIXME mcostell this likely does not make sense in most contexts, leaving here to discuss the logging needs with the group  
          idleTimeoutSeconds: 3 #FIXME mcostell the default timeout is 16 seconds which would be far too high for our use case; however, 3 seconds might be too long 
       }
-      #Configure address waypoints for broker interaction
+
+      # Configure address waypoints for broker interaction
       address{
          prefix: queue
-         distribution: multicast
          waypoint: yes
+         distribution: closest
       }
-      
+
       autoLink{
          addr: queue.test
-         connection: broker-mark-amq-amqp 
-         dir: out
+         connection: broker-amq-amqp
+         direction: out
       }
-      
+
       autoLink{
          addr: queue.test
-         connection: broker-mark-amq-amqp 
-         dir: in
+         connection: broker-amq-amqp
+         direction: in
       }
-      
-      
+
       linkRoute {
          prefix: topic
-         connection: broker-mark-amq-amqp
-         dir: out
+         connection: broker-amq-amqp
+         direction: out
       }
-      
+
       linkRoute {
          prefix: topic
-         connection: broker-mark-amq-amqp
-         dir: in
+         connection: broker-amq-amqp
+         direction: in
       }
 parameters:
 - displayName: Application Name
@@ -154,7 +157,7 @@ parameters:
   name: INTERCONNECT_APPLICATION_NAME
   value: amq-interconnect
   required: true
-- description: REMOTE_NAMESPACE is the namespace of the remote router #FIXME this is a bad hack 
+- description: REMOTE_NAMESPACE is the namespace of the remote router
   name: REMOTE_NAMESPACE
   required: true
 - description: The name of the broker
