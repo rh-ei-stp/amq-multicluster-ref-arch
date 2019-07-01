@@ -692,7 +692,7 @@ objects:
       connector {
          name: remote-mesh-router
          role: inter-router
-         host: ${INTERCONNECT_APPLICATION_NAME}-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
+         host: ${INTERCONNECT_APPLICATION_NAME}-interrouter-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
          port: 443
          sslProfile: inter_router_tls
          verifyHostname: no
