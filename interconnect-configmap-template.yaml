@@ -112,7 +112,6 @@ objects:
          host: ${INTERCONNECT_APPLICATION_NAME}-interrouter-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
          port: 443
          sslProfile: inter_router_tls
-         verifyHostname: no
          saslMechanisms: ANONYMOUS
          cost: 100
          maxSessions: 10000 #FIXME mcostell ensure this makes sense. This is the maximum number of inflight sessions that can be made on the connection 
