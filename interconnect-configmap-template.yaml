@@ -1,0 +1,189 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+labels:
+  template: interconnect-configmap-template
+message: Apply parameterized interconnect configmap 
+metadata:
+  annotations:
+    description: Template to apply custom Interconnect config for convenience.
+  name: interconnect-configmap-template
+objects:
+- kind: ConfigMap
+  apiVersion: v1
+  metadata:
+    name: ${INTERCONNECT_APPLICATION_NAME}
+    labels:
+      application: ${INTERCONNECT_APPLICATION_NAME}
+  data:
+    qdrouterd.conf: |-
+      router {
+          mode: interior
+          id: Router.${HOSTNAME}
+      }
+
+      # Insecure AMQP connection
+      listener {
+          host: 0.0.0.0
+          port: amqp
+          authenticatePeer: no
+          saslMechanisms: ANONYMOUS
+      }
+
+      # Secure AMQPS connection
+      listener {
+          host: 0.0.0.0
+          port: amqps
+          sslProfile: service_tls
+          authenticatePeer: yes
+          requireSsl: true
+          saslMechanisms: EXTERNAL
+      }
+
+      # Secure interrouter listener
+      listener {
+          host: 0.0.0.0
+          port: 55672
+          role: inter-router
+          sslProfile: inter_router_tls
+          authenticatePeer: yes
+          requireSsl: true
+          saslMechanisms: EXTERNAL
+      }
+      
+      # Cross-cluster interrouter listener (unauthenticated)
+      listener {
+          host: 0.0.0.0
+          port: 55673
+          role: inter-router
+          sslProfile: inter_router_tls
+          authenticatePeer: no
+          requireSsl: true
+          saslMechanisms: ANONYMOUS
+      }
+      
+      # Web console for Interconnect
+      listener {
+          host: 0.0.0.0
+          port: 8672
+          authenticatePeer: no
+          saslMechanisms: PLAIN SCRAM-SHA-1
+          sslProfile: console_tls
+          http: true
+          httpRootDir: /usr/share/qpid-dispatch/console
+      }
+
+      # SSL Profile for secure inter-router connections
+      sslProfile {
+          name: inter_router_tls
+          certFile: /etc/qpid-dispatch-certs/inter-router/tls.crt
+          privateKeyFile: /etc/qpid-dispatch-certs/inter-router/tls.key
+          caCertFile: /etc/qpid-dispatch-certs/inter-router/ca.crt
+      }
+
+      # SSL Profile for interconnect amqps
+      sslProfile {
+          name: service_tls
+          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
+          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
+          caCertFile: /etc/qpid-dispatch-certs/client-ca/ca.crt
+      }
+
+      # SSL Profile for interconnect web console
+      sslProfile {
+          name: console_tls
+          certFile: /etc/qpid-dispatch-certs/normal/tls.crt
+          keyFile: /etc/qpid-dispatch-certs/normal/tls.key
+      }
+
+      # Broker Connector
+      connector {
+          name: broker-amq-amqp
+          role: route-container
+          host: ${AMQ_NAME}-amq-headless.${NAMESPACE}.svc
+          port: amqps
+          sslProfile: service_tls
+          saslMechanisms: ANONYMOUS
+      }
+      
+      # Inter-router connection for remote cluster interconnects
+      connector {
+         name: remote-mesh-router
+         role: inter-router
+         host: ${INTERCONNECT_APPLICATION_NAME}-interrouter-${REMOTE_NAMESPACE}.${DEFAULT_ROUTE_DOMAIN}
+         port: 443
+         sslProfile: inter_router_tls
+         saslMechanisms: ANONYMOUS
+         cost: 100
+         maxSessions: 10000 #FIXME mcostell ensure this makes sense. This is the maximum number of inflight sessions that can be made on the connection 
+         linkCapacity: 10000 #FIXME mcostell ensure this makes sense. This is the number of inflight messages that can be in flight per link 
+         messageLoggingComponents: all #FIXME mcostell this likely does not make sense in most contexts, leaving here to discuss the logging needs with the group  
+         idleTimeoutSeconds: 3 #FIXME mcostell the default timeout is 16 seconds which would be far too high for our use case; however, 3 seconds might be too long 
+      }
+
+      # Configure address waypoints for broker interaction
+      address {
+         prefix: queue
+         waypoint: yes
+         distribution: closest
+      }
+      
+      address {
+         prefix: multicast
+         waypoint: yes
+         distribution: multicast
+      }
+
+      autoLink {
+         addr: queue.test
+         connection: broker-amq-amqp
+         direction: out
+      }
+
+      autoLink {
+         addr: queue.test
+         connection: broker-amq-amqp
+         direction: in
+      }
+      
+      autoLink {
+         addr: multicast.test
+         connection: broker-amq-amqp
+         direction: out
+      }
+
+      autoLink {
+         addr: multicast.test
+         connection: broker-amq-amqp
+         direction: in
+      }
+
+      linkRoute {
+         prefix: topic
+         connection: broker-amq-amqp
+         direction: out
+      }
+
+      linkRoute {
+         prefix: topic
+         connection: broker-amq-amqp
+         direction: in
+      }
+parameters:
+- displayName: Application Name
+  description: The name of the application.
+  name: INTERCONNECT_APPLICATION_NAME
+  value: amq-interconnect
+  required: true
+- description: REMOTE_NAMESPACE is the namespace of the remote router
+  name: REMOTE_NAMESPACE
+  required: true
+- description: The name of the broker
+  displayName: AMQ Name
+  name: AMQ_NAME
+  value: broker
+- description: Namespace
+  displayName: Namespace in which the app is being deployed
+  name: NAMESPACE
+  required: true
+
+  

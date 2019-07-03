@@ -1,0 +1,48 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+labels:
+  template: amq-broker-console
+message: A route has been create to access the broker console.
+metadata:
+  annotations:
+    description: Template for creating a route to the broker console
+  name: amq-broker-console
+objects:
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: broker-console-${REPLICA}
+  spec:
+    host: broker-amq-${REPLICA}.broker-amq-headless.${NAMESPACE}.svc
+    port:
+      targetPort: console-jolokia
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: passthrough
+    to:
+      kind: Service
+      name: broker-amq-${REPLICA}-console
+      weight: 100
+    wildcardPolicy: None
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: broker-amq-${REPLICA}-console
+  spec:
+    clusterIP: None
+    ports:
+    - name: console-jolokia
+      port: 8161
+      protocol: TCP
+      targetPort: 8161
+    publishNotReadyAddresses: true
+    selector:
+      deploymentConfig: broker-amq
+      statefulset.kubernetes.io/pod-name: broker-amq-${REPLICA}
+    sessionAffinity: None
+    type: ClusterIP
+parameters:
+- name: NAMESPACE
+  required: true
+- name: REPLICA
+  required: true
