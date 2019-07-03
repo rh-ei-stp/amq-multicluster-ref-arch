@@ -121,20 +121,38 @@ objects:
       }
 
       # Configure address waypoints for broker interaction
-      address{
+      address {
          prefix: queue
          waypoint: yes
          distribution: closest
       }
+      
+      address {
+         prefix: multicast
+         waypoint: yes
+         distribution: multicast
+      }
 
-      autoLink{
+      autoLink {
          addr: queue.test
          connection: broker-amq-amqp
          direction: out
       }
 
-      autoLink{
+      autoLink {
          addr: queue.test
+         connection: broker-amq-amqp
+         direction: in
+      }
+      
+      autoLink {
+         addr: multicast.test
+         connection: broker-amq-amqp
+         direction: out
+      }
+
+      autoLink {
+         addr: multicast.test
          connection: broker-amq-amqp
          direction: in
       }
